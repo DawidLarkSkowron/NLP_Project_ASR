@@ -21,16 +21,7 @@ def transcribe_audio(audio_path, model_size="large-v3", language=None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = whisper.load_model(model_size, device=device)
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    status_text.text("🔄 Ładowanie modelu...")
-    progress_bar.progress(20)
-    
     result = model.transcribe(audio_path, language=language)
-    
-    progress_bar.progress(100)
-    status_text.text("✅ Transkrypcja zakończona!")
-    
     return result
 
 def save_transcription(result, output_text, output_srt, output_json):
@@ -56,7 +47,7 @@ def save_transcription(result, output_text, output_srt, output_json):
     return text
 
 def record_audio(duration=5, samplerate=44100):
-    """Records live audio from microphone and saves it to a temporary file."""
+    """Records live audio from the microphone and saves it to a temporary file."""
     st.write("🎙️ Nagrywanie...")
     recording = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype=np.int16)
     sd.wait()
@@ -82,13 +73,20 @@ def check_ffmpeg():
 
 # Streamlit UI
 st.set_page_config(page_title="Transkrypcja Audio", page_icon="🎙️", layout="wide")
-st.title("🎙️ Transkrypcja Audio w Czasie Rzeczywistym")
+st.title("🎙️ Transkrypcja Audio")
 st.markdown("**Konwertuj swoje nagrania audio na tekst za pomocą modelu Whisper!**")
 
 if not check_ffmpeg():
     st.stop()
 
 option = st.radio("🔹 Wybierz metodę transkrypcji:", ["📂 Z pliku audio", "🎤 Nagranie na żywo"])
+
+languages = {
+    "Auto": None, "Angielski": "en", "Polski": "pl", "Hiszpański": "es", "Francuski": "fr",
+    "Niemiecki": "de", "Włoski": "it", "Rosyjski": "ru", "Chiński": "zh", "Japoński": "ja"
+}
+language_choice = st.selectbox("🌍 Wybierz język transkrypcji:", list(languages.keys()))
+selected_language = languages[language_choice]
 
 if option == "📂 Z pliku audio":
     uploaded_file = st.file_uploader("📤 Wgraj plik audio", type=["mp3", "wav", "m4a", "ogg"])
@@ -98,18 +96,11 @@ if option == "📂 Z pliku audio":
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.read())
             
-            result = transcribe_audio(temp_path)
+            result = transcribe_audio(temp_path, language=selected_language)
             text = save_transcription(result, "transcription.txt", "transcription.srt", "transcription.json")
         
         st.success("✅ Transkrypcja zakończona!")
         st.text_area("📄 Transkrypcja:", text, height=300)
-        format_choice = st.radio("📥 Wybierz format pliku do pobrania:", ["TXT", "SRT", "JSON"])
-        if format_choice == "TXT":
-            st.download_button("⬇️ Pobierz transkrypcję TXT", text, file_name="transcription.txt")
-        elif format_choice == "SRT":
-            st.download_button("🎬 Pobierz napisy SRT", open("transcription.srt").read(), file_name="transcription.srt")
-        else:
-            st.download_button("📜 Pobierz JSON", open("transcription.json").read(), file_name="transcription.json")
 
 elif option == "🎤 Nagranie na żywo":
     duration = st.slider("⏱️ Czas nagrania (sekundy)", 1, 10, 5)
@@ -117,15 +108,8 @@ elif option == "🎤 Nagranie na żywo":
         with st.spinner("🎤 Nagrywanie w toku..."):
             audio_path = record_audio(duration)
             st.write("⏳ Transkrybuję nagranie...")
-            result = transcribe_audio(audio_path)
+            result = transcribe_audio(audio_path, language=selected_language)
             text = save_transcription(result, "live_transcription.txt", "live_transcription.srt", "live_transcription.json")
         
         st.success("✅ Transkrypcja zakończona!")
         st.text_area("📄 Transkrypcja:", text, height=300)
-        format_choice = st.radio("📥 Wybierz format pliku do pobrania:", ["TXT", "SRT", "JSON"], key="live_format")
-        if format_choice == "TXT":
-            st.download_button("⬇️ Pobierz transkrypcję TXT", text, file_name="live_transcription.txt")
-        elif format_choice == "SRT":
-            st.download_button("🎬 Pobierz napisy SRT", open("live_transcription.srt").read(), file_name="live_transcription.srt")
-        else:
-            st.download_button("📜 Pobierz JSON", open("live_transcription.json").read(), file_name="live_transcription.json")
