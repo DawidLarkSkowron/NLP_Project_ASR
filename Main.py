@@ -5,11 +5,12 @@ import json
 import srt
 import streamlit as st
 import tempfile
-import hunspell
+import language_tool_python
 import requests
 import difflib
 from datetime import timedelta
 from subprocess import run, CalledProcessError, DEVNULL
+from emotion_detection import EmotionDetector
 
 # === Pobieranie słowników ===
 def download_if_needed(url, path):
@@ -21,52 +22,35 @@ def download_if_needed(url, path):
         else:
             raise Exception(f"Nie udało się pobrać pliku: {url}")
 
-# === Inicjalizacja Hunspell z obsługą wielu języków ===
-def get_hunspell_checker(lang_code):
-    supported_langs = {
-        "pl": "pl",
-        "en": "en",
-        "es": "es",
-        "fr": "fr",
-        "de": "de",
-        "it": "it"
-    }
-
-    if lang_code not in supported_langs:
-        return None
-
-    base_url = "https://raw.githubusercontent.com/wooorm/dictionaries/main/dictionaries"
-    temp_dir = tempfile.gettempdir()
-    lang_dir = supported_langs[lang_code]
-
-    dic_path = os.path.join(temp_dir, f"{lang_code}.dic")
-    aff_path = os.path.join(temp_dir, f"{lang_code}.aff")
-
+# === Inicjalizacja LanguageTool ===
+def get_language_tool(lang_code):
     try:
-        download_if_needed(f"{base_url}/{lang_dir}/index.dic", dic_path)
-        download_if_needed(f"{base_url}/{lang_dir}/index.aff", aff_path)
-        return hunspell.HunSpell(dic_path, aff_path)
+        tool = language_tool_python.LanguageTool(lang_code)
+        return tool
     except Exception as e:
-        st.error(f"❌ Błąd inicjalizacji Hunspell ({lang_code}): {e}")
+        st.error(f"❌ Błąd inicjalizacji LanguageTool ({lang_code}): {e}")
         return None
 
 # === Korekta pisowni tekstu ===
-def correct_spelling(text, checker):
-    corrected_words = []
-    for word in text.split():
-        if not checker.spell(word):
-            suggestions = checker.suggest(word)
-            corrected_words.append(suggestions[0] if suggestions else word)
-        else:
-            corrected_words.append(word)
-    return " ".join(corrected_words)
+def correct_spelling(text, tool):
+    if not tool:
+        return text
+    
+    matches = tool.check(text)
+    corrected_text = language_tool_python.utils.correct(text, matches)
+    return corrected_text
 
 # === Korekta pisowni segmentów (dla SRT) ===
-def correct_segments(segments, checker):
+def correct_segments(segments, tool):
+    if not tool:
+        return segments
+        
+    corrected_segments = []
     for segment in segments:
         original = segment["text"]
-        segment["text"] = correct_spelling(original, checker)
-    return segments
+        segment["text"] = correct_spelling(original, tool)
+        corrected_segments.append(segment)
+    return corrected_segments
 
 # === Różnice tekstu ===
 def show_diff(original, corrected):
@@ -136,53 +120,140 @@ if not check_ffmpeg():
     st.stop()
 
 languages = {
-    "Auto": None, "Angielski": "en", "Polski": "pl", "Hiszpański": "es", "Francuski": "fr",
-    "Niemiecki": "de", "Włoski": "it", "Rosyjski": "ru", "Chiński": "zh", "Japoński": "ja"
+    "Angielski": "en", "Polski": "pl"
 }
 
-language_choice = st.selectbox("🌍 Wybierz język transkrypcji:", list(languages.keys()))
+language_choice = st.selectbox("🌍 Wybierz język transkrypcji:", list(languages.keys()), index=0)
 selected_language = languages[language_choice]
 
 uploaded_file = st.file_uploader("📤 Wgraj plik audio", type=["mp3", "wav", "m4a", "ogg"])
 
 if uploaded_file is not None:
-    if 'transcription_result' not in st.session_state:
+    # Zapisz ścieżkę do tymczasowego pliku w sesji
+    if 'temp_audio_path' not in st.session_state:
+        temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[-1]).name
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.read())
+        st.session_state.temp_audio_path = temp_path
+        
+        # Wykonaj transkrypcję
         with st.spinner("⏳ Przetwarzanie pliku..."):
-            temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[-1]).name
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.read())
-
             result = transcribe_audio(temp_path, language=selected_language)
             st.session_state.transcription_raw = result
-
-    result = st.session_state.transcription_raw
+            
+    else:
+        result = st.session_state.transcription_raw
+    
     original_text = result["text"]
     segments = result["segments"]
-
+    
+    # Wyświetl wyniki transkrypcji
+    # Wyświetl wyniki transkrypcji
     st.success("✅ Transkrypcja zakończona!")
     st.subheader("📄 Oryginalna transkrypcja:")
-    st.text_area("", original_text, height=250)
+    st.text_area("Oryginalny tekst", original_text, height=250, key="original_text")
+    
+    # Formularz do korekty pisowni
+    with st.form("spelling_correction_form"):
+        corrected_text = original_text
+        corrected_segments = segments
+        
+        if selected_language in ["pl", "en"]:
+            if st.form_submit_button("🪄 Popraw pisownię (Hunspell)"):
+                tool = get_language_tool(selected_language)
+                if tool:
+                    with st.spinner("🔍 Sprawdzanie pisowni..."):
+                        corrected_segments = correct_segments(segments.copy(), tool)
+                        corrected_text = correct_spelling(original_text, tool)
+                        diff = show_diff(original_text, corrected_text)
 
-    corrected_text = original_text
-    corrected_segments = segments
+                        st.subheader("✅ Po korekcie:")
+                        st.text_area("Tekst po korekcie", corrected_text, height=250, key="corrected_text")
+                        st.subheader("🧾 Różnice:")
+                        st.markdown(diff)
 
-    if selected_language in ["pl", "en", "es", "fr", "de", "it"]:
-        if st.button("🪄 Popraw pisownię (Hunspell)"):
-            checker = get_hunspell_checker(selected_language)
-            if checker:
-                with st.spinner("🔍 Sprawdzanie pisowni..."):
-                    corrected_segments = correct_segments(segments.copy(), checker)
-                    corrected_text = correct_spelling(original_text, checker)
-                    diff = show_diff(original_text, corrected_text)
+    # Formularz do wykrywania emocji
+    with st.form("emotion_detection_form"):
+        if st.form_submit_button("🧠 Wykryj emocje"):
+            with st.spinner("🔍 Wykrywanie emocji..."):
+                # Przekazujemy wybrany język do detektora emocji
+                language_code = selected_language if selected_language else "en"
+                detector = EmotionDetector(language=language_code)
+                emotion_results = detector.process_transcription({"text": corrected_text, "segments": corrected_segments})
+                if emotion_results:
+                    st.subheader("🧠 Emocje wykryte w transkrypcji:")
+                    
+                    # Definiuj emotki dla różnych emocji
+                    emotion_emojis = {
+                        "happiness": "😄",  # uśmiech
+                        "sadness": "😢",    # płacz
+                        "anger": "😡",      # złość
+                        "fear": "😨",       # strach
+                        "surprise": "😮",    # zaskoczenie
+                        "neutral": "😐",     # neutralna
+                        "disgust": "🤢",     # obrzydzenie
+                        "joy": "😃",         # radość
+                        "love": "😍",       # miłość
+                        "admiration": "😊", # podziw
+                        "amusement": "😂",  # rozbawienie
+                        "annoyance": "😒",  # irytacja
+                        "approval": "👍",    # aprobata
+                        "caring": "🤗",      # troska
+                        "confusion": "🤔",   # zmieszanie
+                        "curiosity": "🤓",   # ciekawość
+                        "desire": "😏",      # pożądanie
+                        "disappointment": "😞", # rozczarowanie
+                        "disapproval": "👎", # dezaprobata
+                        "embarrassment": "😳", # zawstydzenie
+                        "excitement": "😁",  # ekscytacja
+                        "gratitude": "🙏",   # wdzięczność
+                        "grief": "😔",      # żal
+                        "nervousness": "😬", # zdenerwowanie
+                        "optimism": "🙂",    # optymizm
+                        "pride": "🤩",       # duma
+                        "realization": "😯", # uświadomienie
+                        "relief": "😌",      # ulga
+                        "remorse": "😕",     # wyrzuty sumienia
+                    }
+                    
+                    # Grupuj wyniki według emocji
+                    emotions_grouped = {}
+                    for result in emotion_results:
+                        emotion_label = result['emotion']['label']
+                        if emotion_label not in emotions_grouped:
+                            emotions_grouped[emotion_label] = []
+                        emotions_grouped[emotion_label].append(result)
+                    
+                    # Wyświetl pogrupowane emocje
+                    for emotion, results in emotions_grouped.items():
+                        emoji = emotion_emojis.get(emotion.lower(), "😶")  # Domyślna emotka jeśli nie znaleziono
+                        avg_score = sum(r['emotion']['score'] for r in results) / len(results)
+                        
+                        # Nagłówek dla emocji
+                        st.markdown(f"### {emoji} **{emotion}** (pewność: {avg_score:.2f})")
+                        
+                        # Fragment tekstu dla tej emocji
+                        st.markdown("#### Fragmenty:")
+                        for i, result in enumerate(results, 1):
+                            start_time = result.get('start', 0)
+                            end_time = result.get('end', 0)
+                            text = result.get('text', 'Brak tekstu')
+                            st.markdown(f"**{i}.** *{start_time:.1f}s - {end_time:.1f}s:* \"{text}\"")
+                        
+                        st.markdown("---")
+                    
+                    # Zapisz wyniki emocji do sesji
+                    st.session_state.emotion_results = emotion_results
 
-                    st.subheader("✅ Po korekcie:")
-                    st.text_area("", corrected_text, height=250)
-                    st.subheader("🧾 Różnice:")
-                    st.markdown(diff)
-
-    text_output, srt_output, json_output = save_transcription(corrected_text, corrected_segments)
-
+    # Przyciski do pobierania plików
     col1, col2, col3 = st.columns(3)
-    col1.download_button("📥 Pobierz TXT", text_output, "transcription.txt", "text/plain")
-    col2.download_button("📥 Pobierz SRT", srt_output, "transcription.srt", "text/plain")
-    col3.download_button("📥 Pobierz JSON", json_output, "transcription.json", "application/json")
+    
+    text_output, srt_output, json_output = save_transcription(corrected_text, corrected_segments)
+    
+    if st.session_state.get('emotion_results'):
+        emotion_json = json.dumps(st.session_state.emotion_results, indent=4, ensure_ascii=False)
+        col1.download_button("📥 Pobierz wyniki emocji", emotion_json, "emotion_results.json", "application/json", key="download_emotions")
+    
+    col2.download_button("📥 Pobierz TXT", text_output, "transcription.txt", "text/plain", key="download_txt")
+    col3.download_button("📥 Pobierz SRT", srt_output, "transcription.srt", "text/plain", key="download_srt")
+    st.download_button("📥 Pobierz JSON", json_output, "transcription.json", "application/json", key="download_json")
