@@ -102,29 +102,12 @@ def save_transcription(text, segments):
         "segments": segments
     }, indent=4, ensure_ascii=False)
 
-# === Sprawdzenie ffmpeg ===
-def check_ffmpeg():
-    try:
-        run(["ffmpeg", "-version"], stdout=DEVNULL, stderr=DEVNULL, check=True)
-    except CalledProcessError:
-        st.error("⚠️ FFmpeg nie jest zainstalowany lub nie jest w PATH. Zainstaluj FFmpeg i spróbuj ponownie.")
-        return False
-    return True
-
 # === UI ===
 st.set_page_config(page_title="Transkrypcja Audio", page_icon="🎙️", layout="wide")
 st.title("🎙️ Transkrypcja Audio")
 st.markdown("**Konwertuj swoje nagrania audio na tekst za pomocą modelu Whisper i sprawdź pisownię!**")
 
-if not check_ffmpeg():
-    st.stop()
-
-languages = {
-    "Angielski": "en", "Polski": "pl"
-}
-
-language_choice = st.selectbox("🌍 Wybierz język transkrypcji:", list(languages.keys()), index=0)
-selected_language = languages[language_choice]
+selected_language = "en"
 
 uploaded_file = st.file_uploader("📤 Wgraj plik audio", type=["mp3", "wav", "m4a", "ogg"])
 
@@ -176,9 +159,7 @@ if uploaded_file is not None:
     with st.form("emotion_detection_form"):
         if st.form_submit_button("🧠 Wykryj emocje"):
             with st.spinner("🔍 Wykrywanie emocji..."):
-                # Przekazujemy wybrany język do detektora emocji
-                language_code = selected_language if selected_language else "en"
-                detector = EmotionDetector(language=language_code)
+                detector = EmotionDetector()
                 emotion_results = detector.process_transcription({"text": corrected_text, "segments": corrected_segments})
                 if emotion_results:
                     st.subheader("🧠 Emocje wykryte w transkrypcji:")

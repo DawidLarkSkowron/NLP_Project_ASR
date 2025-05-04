@@ -4,20 +4,12 @@ import json
 import streamlit as st
 
 class EmotionDetector:
-    def __init__(self, language="en"):
+    def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.language = language
         
-        # Wybierz odpowiedni model w zależności od wybranego języka
-        if language == "pl":
-            # Dla języka polskiego użyjemy tego samego modelu co dla angielskiego
-            # ponieważ nie ma dedykowanego modelu dla języka polskiego
-            # W przyszłości można dodać fine-tuned model dla języka polskiego
-            model_name = "j-hartmann/emotion-english-distilroberta-base"
-            st.warning("⚠️ Dla języka polskiego używany jest model angielski. Wyniki mogą być mniej dokładne.")
-        else:  # Domyślnie angielski
-            model_name = "j-hartmann/emotion-english-distilroberta-base"
-            
+        # Używamy modelu angielskiego
+        model_name = "j-hartmann/emotion-english-distilroberta-base"
+        
         # Załaduj model
         self.model_name = model_name
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -31,28 +23,8 @@ class EmotionDetector:
         """
         try:
             results = self.pipeline(text)
+            emotion_label = results[0]["label"]
             
-            # Dla modelu polskiego wyniki mogą być inne niż dla angielskiego
-            if self.language == "pl":
-                # Model sdadas/polish-roberta-large-emotions ma inny format wyników
-                emotion_label = results[0]["label"]
-                # Mapowanie polskich emocji na angielskie (dla spójności w wyświetlaniu)
-                pl_to_en_emotions = {
-                    "radość": "joy",
-                    "smutek": "sadness",
-                    "gniew": "anger",
-                    "strach": "fear",
-                    "zaskoczenie": "surprise",
-                    "neutralny": "neutral",
-                    "odraza": "disgust",
-                    "wstręt": "disgust",
-                    "zniesmaczenie": "disgust"
-                }
-                emotion_label = pl_to_en_emotions.get(emotion_label.lower(), emotion_label)
-            else:
-                # Model angielski
-                emotion_label = results[0]["label"]
-                
             return {
                 "label": emotion_label,
                 "score": results[0]["score"],
