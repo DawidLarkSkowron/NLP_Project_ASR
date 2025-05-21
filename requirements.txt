@@ -1,7 +1,40 @@
-torch>=2.0.0
-transformers>=4.30.0
+# PyTorch i biblioteki audio/wideo z CUDA 11.8
+torch==2.0.1
+torchaudio==2.0.2
+torchvision==0.15.2
+# UWAGA: przy instalacji użyj --index-url poniżej
+
+# Transformers i NLP
+transformers==4.30.0
+tokenizers==0.13.3
+spacy==3.6.0
+thinc==8.1.10
+
+# Audio processing
+librosa==0.10.1
+soundfile==0.12.1
+
+# Przetwarzanie danych
+numpy==1.24.3
+pandas==1.5.3
+scikit-learn==1.2.2
+imbalanced-learn==0.11.0
+
+# Wizualizacja
+matplotlib==3.7.1
+seaborn==0.12.2
+
+# Web i API (opcjonalnie)
+streamlit==1.23.0
+fastapi==0.100.0
+uvicorn==0.22.0
+
+# Inne narzędzia
+tqdm==4.65.0
+protobuf==4.23.3
+requests==2.31.0
+
+
+
+
 git+https://github.com/openai/whisper.git
-streamlit>=1.23.0
-language_tool_python>=2.2.3
-srt>=3.4.2
-numpy>=1.24.0

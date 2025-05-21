@@ -11,6 +11,7 @@ import difflib
 from datetime import timedelta
 from subprocess import run, CalledProcessError, DEVNULL
 from emotion_detection import EmotionDetector
+from summarizer import LocalBartSummarizer
 
 # === Pobieranie słowników ===
 def download_if_needed(url, path):
@@ -238,3 +239,44 @@ if uploaded_file is not None:
     col2.download_button("📥 Pobierz TXT", text_output, "transcription.txt", "text/plain", key="download_txt")
     col3.download_button("📥 Pobierz SRT", srt_output, "transcription.srt", "text/plain", key="download_srt")
     st.download_button("📥 Pobierz JSON", json_output, "transcription.json", "application/json", key="download_json")
+
+# === STRESZCZENIE / PODSUMOWANIE BART ===
+if "corrected_text" in st.session_state and st.session_state.corrected_text.strip():
+    st.markdown("---")
+    st.subheader("📝 Generowanie streszczenia (model BART)")
+
+    with st.form("summary_bart_form"):
+        submit_summary = st.form_submit_button("🧠 Wygeneruj streszczenie lokalnie")
+
+    if submit_summary:
+        with st.spinner("⏳ Generowanie streszczenia..."):
+            try:
+                from summarizer import LocalBartSummarizer  # upewnij się, że ten plik istnieje
+
+                summarizer = LocalBartSummarizer()
+                long_text = st.session_state.corrected_text
+                result_summary = summarizer.summarize_text(long_text)
+
+
+                st.session_state.bart_summary = result_summary
+
+            except Exception as e:
+                st.error(f"❌ Błąd podczas generowania streszczenia BART: {e}")
+
+    # Wyświetlenie i pobranie podsumowania POZA formularzem
+    if "bart_summary" in st.session_state:
+        st.subheader("📋 Wygenerowane streszczenie (BART)")
+        st.text_area("Wynik:", st.session_state.bart_summary, height=300)
+
+        st.download_button(
+            label="📥 Pobierz jako .txt",
+            data=st.session_state.bart_summary,
+            file_name="bart_summary.txt",
+            mime="text/plain"
+        )
+        st.download_button(
+            label="📥 Pobierz jako .json",
+            data=json.dumps({"summary": st.session_state.bart_summary}, indent=4, ensure_ascii=False),
+            file_name="bart_summary.json",
+            mime="application/json"
+        )
